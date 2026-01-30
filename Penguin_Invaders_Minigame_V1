@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Penguin Invaders</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: #06131d;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color: #eaf6ff;
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+  }
+  .wrap { width: min(820px, 96vw); }
+  .hud {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 6px;
+    font-size: 14px;
+    opacity: 0.95;
+    flex-wrap: wrap;
+  }
+  canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: radial-gradient(1200px 800px at 50% 90%, #0b2a3b 0%, #051018 55%, #03080d 100%);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  .overlay { position: relative; margin-top: -1px; }
+  .panel {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  .card {
+    pointer-events: auto;
+    width: min(560px, 92%);
+    background: rgba(6, 16, 24, 0.82);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 16px;
+    padding: 18px 18px 14px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 12px 35px rgba(0,0,0,0.5);
+  }
+  .card h2 { margin: 0 0 8px; font-size: 22px; }
+  .card p { margin: 6px 0; line-height: 1.35; opacity: 0.92; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  button {
+    appearance: none;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: linear-gradient(#1d86ff, #0f5bd6);
+    color: white;
+    font-weight: 700;
+    padding: 10px 14px;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.18);
+    font-weight: 600;
+  }
+  button:hover { filter: brightness(1.05); }
+  .small { font-size: 12px; opacity: 0.85; margin-top: 10px; }
+  .hidden { display: none !important; }
+  .kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 2px 6px;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+  }
+  .legend {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 13px;
+    opacity: 0.9;
+  }
+  .legend b { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hud" id="hud">
+      <div><strong>Score:</strong> <span id="score">0</span></div>
+      <div><strong>Lives:</strong> <span id="lives">3</span></div>
+      <div><strong>Wave:</strong> <span id="wave">1</span></div>
+      <div><strong>Status:</strong> <span id="status">Ready</span></div>
+      <div><strong>Enemies:</strong> <span id="enemies">0</span></div>
+    </div>
+
+    <div class="overlay">
+      <canvas id="game" width="820" height="720" aria-label="Penguin Invaders game"></canvas>
+
+      <div class="panel" id="panelStart">
+        <div class="card">
+          <h2>🐧 Penguin Invaders</h2>
+          <p>Penguins arrive dynamically in waves. Multiple enemy types with different behavior.</p>
+          <p>
+            Move: <span class="kbd">←</span>/<span class="kbd">→</span> or <span class="kbd">A</span>/<span class="kbd">D</span> •
+            Shoot: <span class="kbd">Space</span> •
+            Pause: <span class="kbd">P</span>
+          </p>
+          <div class="legend" id="legend">
+            <div>🐧 <b>Grunt</b>: basic, moderate fire rate</div>
+            <div>🧊 <b>Tank</b>: more HP, slower</div>
+            <div>🪶 <b>Swift</b>: faster, evasive sway, lower HP</div>
+            <div>🎯 <b>Sniper</b>: slower but shoots faster fish</div>
+          </div>
+          <div class="row">
+            <button id="btnStart">Start Game</button>
+            <button id="btnHow" class="secondary">Toggle Tips</button>
+          </div>
+          <p class="small" id="tips">
+            Tips: swifts are harder to track; tanks take multiple hits; snipers’ fish are faster—move early.
+          </p>
+        </div>
+      </div>
+
+      <div class="panel hidden" id="panelPause">
+        <div class="card">
+          <h2>Paused</h2>
+          <p>Press <span class="kbd">P</span> to resume.</p>
+          <div class="row">
+            <button id="btnResume">Resume</button>
+            <button id="btnRestart1" class="secondary">Restart</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel hidden" id="panelGameOver">
+        <div class="card">
+          <h2 id="overTitle">Game Over</h2>
+          <p><strong>Final Score:</strong> <span id="finalScore">0</span></p>
+          <p><strong>Wave Reached:</strong> <span id="finalWave">1</span></p>
+          <div class="row">
+            <button id="btnRestart2">Play Again</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  // UI
+  const elScore = document.getElementById("score");
+  const elLives = document.getElementById("lives");
+  const elWave  = document.getElementById("wave");
+  const elStatus = document.getElementById("status");
+  const elEnemies = document.getElementById("enemies");
+
+  const panelStart = document.getElementById("panelStart");
+  const panelPause = document.getElementById("panelPause");
+  const panelGameOver = document.getElementById("panelGameOver");
+
+  const btnStart = document.getElementById("btnStart");
+  const btnResume = document.getElementById("btnResume");
+  const btnRestart1 = document.getElementById("btnRestart1");
+  const btnRestart2 = document.getElementById("btnRestart2");
+  const btnHow = document.getElementById("btnHow");
+  const tips = document.getElementById("tips");
+  btnHow.addEventListener("click", () => tips.classList.toggle("hidden"));
+
+  const elFinalScore = document.getElementById("finalScore");
+  const elFinalWave = document.getElementById("finalWave");
+  const elOverTitle = document.getElementById("overTitle");
+
+  // Input
+  const keys = new Set();
+  window.addEventListener("keydown", (e) => {
+    if (["ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
+    keys.add(e.code);
+    if (e.code === "KeyP") togglePause();
+  }, { passive: false });
+  window.addEventListener("keyup", (e) => keys.delete(e.code));
+
+  // Helpers
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const now = () => performance.now();
+  const rand = (a,b) => a + Math.random()*(b-a);
+
+  // World
+  const W = canvas.width;
+  const H = canvas.height;
+  const groundY = H - 58;
+
+  // Panels helpers
+  const show = (el) => el.classList.remove("hidden");
+  const hide = (el) => el.classList.add("hidden");
+
+  // Game state
+  let running = false;
+  let paused = false;
+  let gameOver = false;
+
+  let score = 0;
+  let lives = 3;
+  let wave = 1;
+
+  // Visuals
+  let stars = [];
+  let particles = [];
+
+  // Player + bullets
+  const player = {
+    x: W * 0.5,
+    y: groundY,
+    speed: 460,          // px/sec
+    cooldownMs: 130,
+    lastShotAt: -Infinity,
+    invulnUntil: 0
+  };
+  let bullets = [];
+
+  // Enemies + enemy shots
+  let enemies = [];      // dynamic list
+  let enemyShots = [];
+
+  // Dynamic wave/spawn controller
+  let waveState = {
+    spawning: true,
+    spawned: 0,
+    toSpawn: 0,
+    spawnEveryMs: 220,
+    lastSpawnAt: 0,
+    entryY: 70,
+    finishedAt: 0
+  };
+
+  // Enemy type definitions
+  // Each enemy has: type, x, y, vx, targetY, hp, fireEveryMs, lastShotAt, emoji, size, swayAmp, swayFreq, fishSpeed
+  const ENEMY_TYPES = {
+    GRUNT:  { key:"GRUNT",  emoji:"🐧", baseHp:1, baseSpeed: 28, fireEveryMs: 1100, swayAmp: 0,  swayFreq: 0,    fishSpeed: 260, score: 10 },
+    TANK:   { key:"TANK",   emoji:"🧊", baseHp:3, baseSpeed: 18, fireEveryMs: 1500, swayAmp: 2,  swayFreq: 0.8,  fishSpeed: 240, score: 18 },
+    SWIFT:  { key:"SWIFT",  emoji:"🪶", baseHp:1, baseSpeed: 45, fireEveryMs: 1350, swayAmp: 14, swayFreq: 1.6,  fishSpeed: 270, score: 14 },
+    SNIPER: { key:"SNIPER", emoji:"🎯", baseHp:2, baseSpeed: 22, fireEveryMs: 900,  swayAmp: 6,  swayFreq: 1.15, fishSpeed: 360, score: 20 }
+  };
+
+  function pickTypeForWave(w) {
+    // Increasing variety with wave number
+    // Early: mostly grunts; then add swift/tank; later add snipers + more specials.
+    const r = Math.random();
+    if (w <= 1) return ENEMY_TYPES.GRUNT;
+    if (w === 2) return r < 0.75 ? ENEMY_TYPES.GRUNT : ENEMY_TYPES.SWIFT;
+    if (w === 3) return r < 0.60 ? ENEMY_TYPES.GRUNT : (r < 0.85 ? ENEMY_TYPES.TANK : ENEMY_TYPES.SWIFT);
+    // w >= 4
+    if (r < 0.45) return ENEMY_TYPES.GRUNT;
+    if (r < 0.65) return ENEMY_TYPES.SWIFT;
+    if (r < 0.85) return ENEMY_TYPES.TANK;
+    return ENEMY_TYPES.SNIPER;
+  }
+
+  // Init/reset
+  function initStars() {
+    stars = [];
+    const n = 180;
+    for (let i = 0; i < n; i++) {
+      stars.push({ x: Math.random()*W, y: Math.random()*H, r: Math.random()*1.6+0.2, v: Math.random()*28+8 });
+    }
+  }
+
+  function resetGame() {
+    running = false;
+    paused = false;
+    gameOver = false;
+
+    score = 0;
+    lives = 3;
+    wave = 1;
+
+    bullets = [];
+    enemyShots = [];
+    enemies = [];
+    particles = [];
+
+    player.x = W * 0.5;
+    player.lastShotAt = -Infinity;
+    player.invulnUntil = 0;
+
+    initStars();
+    startWave(wave);
+
+    syncHud("Ready");
+  }
+
+  function syncHud(statusText) {
+    elScore.textContent = String(score);
+    elLives.textContent = String(lives);
+    elWave.textContent = String(wave);
+    elStatus.textContent = statusText;
+    elEnemies.textContent = String(enemies.filter(e => e.alive).length + (waveState.spawning ? (waveState.toSpawn - waveState.spawned) : 0));
+  }
+
+  // Wave logic (dynamic entries)
+  function startWave(w) {
+    enemies = [];
+    enemyShots = [];
+    bullets = [];
+    particles = [];
+
+    // More enemies each wave
+    const base = 16;
+    const extra = Math.floor((w - 1) * 5.5);
+    const toSpawn = clamp(base + extra, 16, 70);
+
+    waveState = {
+      spawning: true,
+      spawned: 0,
+      toSpawn,
+      spawnEveryMs: clamp(240 - (w - 1) * 12, 90, 240),
+      lastSpawnAt: 0,
+      entryY: clamp(80 + Math.floor(w * 2), 80, 120),
+      finishedAt: 0
+    };
+
+    // Small grace window at wave start
+    player.invulnUntil = now() + 700;
+  }
+
+  function spawnEnemy() {
+    const type = pickTypeForWave(wave);
+
+    // Spawn in from left or right side, slightly above screen, then ease to targetY
+    const fromLeft = Math.random() < 0.5;
+    const spawnX = fromLeft ? -40 : W + 40;
+    const laneX = rand(60, W - 60);
+    const y0 = rand(-70, -10);
+    const targetY = waveState.entryY + rand(0, 180) + (waveState.spawned % 6) * 8;
+
+    // Horizontal velocity: move toward laneX while descending
+    const approachSpeed = 120 + wave * 8;
+    const vx = fromLeft ? approachSpeed : -approachSpeed;
+
+    const hp = type.baseHp + (wave >= 6 && type.key === "GRUNT" && Math.random() < 0.20 ? 1 : 0);
+
+    enemies.push({
+      alive: true,
+      type: type.key,
+      emoji: type.emoji,
+      x: spawnX,
+      y: y0,
+      laneX,
+      targetY,
+      // Once "settled", they switch to formation-style drifting
+      settled: false,
+      // Movement
+      vx,
+      dir: 1,
+      baseSpeed: type.baseSpeed + (wave - 1) * 2.2,
+      // Behavior
+      hp,
+      fireEveryMs: clamp(type.fireEveryMs - (wave - 1) * 25, 320, type.fireEveryMs),
+      lastShotAt: now() + rand(-400, 200), // stagger
+      swayAmp: type.swayAmp,
+      swayFreq: type.swayFreq,
+      fishSpeed: type.fishSpeed + (wave - 1) * 6,
+      scoreValue: type.score
+    });
+
+    waveState.spawned += 1;
+  }
+
+  function waveComplete() {
+    // complete when:
+    // - spawning finished
+    // - no alive enemies
+    if (waveState.spawning) return false;
+    return enemies.every(e => !e.alive);
+  }
+
+  function nextWave() {
+    wave += 1;
+    score += 250 + wave * 35;
+    startWave(wave);
+    syncHud("Next wave");
+  }
+
+  // Shooting
+  function shoot() {
+    const t = now();
+    if (t - player.lastShotAt < player.cooldownMs) return;
+    player.lastShotAt = t;
+
+    // Add a tiny power bump every 4th wave: double shot
+    const multi = (wave % 4 === 0);
+    const offsets = multi ? [-9, 9] : [0];
+
+    for (const dx of offsets) {
+      bullets.push({ x: player.x + dx, y: player.y + 4, vy: -760 });
+    }
+  }
+
+  function enemyShootFrom(e) {
+    // Some types shoot more accurately/faster
+    // Aim: drift toward player's x a bit (sniper aims better)
+    const aimStrength = (e.type === "SNIPER") ? 0.35 : (e.type === "SWIFT" ? 0.18 : 0.22);
+    const vx = (player.x - e.x) * aimStrength; // px/sec sideways
+    enemyShots.push({
+      x: e.x,
+      y: e.y + 22,
+      vy: e.fishSpeed,
+      vx: clamp(vx, -140, 140),
+      emoji: "🐟"
+    });
+  }
+
+  // Effects
+  function explode(x, y) {
+    const colors = ["#ffffff", "#7bdcff", "#ff6b6b", "#ffd86b"];
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 90 + Math.random() * 240;
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 70,
+        size: 2 + Math.random() * 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 0.55 + Math.random() * 0.25,
+        maxLife: 0.8
+      });
+    }
+  }
+
+  function loseLife() {
+    lives -= 1;
+    player.invulnUntil = now() + 1400;
+    explode(player.x, player.y);
+
+    if (lives <= 0) {
+      endGame("Game Over");
+    } else {
+      syncHud("Hit! Invulnerable…");
+    }
+  }
+
+  function endGame(title) {
+    running = false;
+    paused = false;
+    gameOver = true;
+
+    elOverTitle.textContent = title;
+    elFinalScore.textContent = String(score);
+    elFinalWave.textContent = String(wave);
+
+    show(panelGameOver);
+    syncHud("Game Over");
+  }
+
+  function togglePause() {
+    if (!running || gameOver) return;
+    paused = !paused;
+    if (paused) {
+      show(panelPause);
+      syncHud("Paused");
+    } else {
+      hide(panelPause);
+      syncHud("Running");
+      lastFrameAt = now();
+      requestAnimationFrame(loop);
+    }
+  }
+
+  // Draw
+  function drawStars(dt) {
+    ctx.save();
+    for (const s of stars) {
+      s.y += s.v * dt;
+      if (s.y > H) { s.y = -2; s.x = Math.random() * W; }
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = "white";
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawGround() {
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, groundY + 24, W, 1);
+    ctx.restore();
+  }
+
+  function drawSpaceship() {
+    const blink = (now() < player.invulnUntil) ? (Math.floor(now() / 80) % 2 === 0) : true;
+    if (!blink) return;
+
+    ctx.save();
+    ctx.translate(player.x, player.y);
+
+    // Thruster glow
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.ellipse(0, 18, 14, 10, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#7bdcff";
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+
+    // Body
+    ctx.beginPath();
+    ctx.moveTo(0, -18);
+    ctx.lineTo(18, 12);
+    ctx.quadraticCurveTo(0, 20, -18, 12);
+    ctx.closePath();
+    ctx.fillStyle = "#dbe7ef";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.stroke();
+
+    // Cockpit
+    ctx.beginPath();
+    ctx.ellipse(0, -4, 7, 10, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#7bdcff";
+    ctx.fill();
+
+    // Wings
+    ctx.beginPath();
+    ctx.moveTo(-18, 10);
+    ctx.lineTo(-28, 18);
+    ctx.lineTo(-10, 18);
+    ctx.closePath();
+    ctx.fillStyle = "#b8c7d1";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(18, 10);
+    ctx.lineTo(28, 18);
+    ctx.lineTo(10, 18);
+    ctx.closePath();
+    ctx.fillStyle = "#b8c7d1";
+    ctx.fill();
+
+    // Laser ports
+    ctx.fillStyle = "#ff6b6b";
+    ctx.fillRect(-10, 10, 4, 6);
+    ctx.fillRect(6, 10, 4, 6);
+
+    ctx.restore();
+  }
+
+  function drawEnemies(t) {
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const e of enemies) {
+      if (!e.alive) continue;
+
+      // soft shadow
+      ctx.globalAlpha = 0.18;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y + 34, 16, 6, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "black";
+      ctx.fill();
+
+      // body (emoji)
+      ctx.globalAlpha = 1;
+      ctx.font = "30px serif";
+      ctx.fillText(e.emoji, e.x, e.y + 18);
+
+      // HP pips for multi-HP
+      if (e.hp > 1) {
+        ctx.font = "12px system-ui";
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        const pips = Math.min(e.hp, 5);
+        ctx.fillText("❤".repeat(pips), e.x, e.y - 2);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawBullets() {
+    ctx.save();
+    for (const b of bullets) {
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "#ff3b3b";
+      ctx.fillRect(b.x - 2, b.y - 10, 4, 12);
+      ctx.globalAlpha = 0.25;
+      ctx.fillRect(b.x - 5, b.y - 12, 10, 16);
+    }
+    ctx.restore();
+  }
+
+  function drawEnemyShots() {
+    ctx.save();
+    ctx.font = "18px serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const s of enemyShots) ctx.fillText(s.emoji, s.x, s.y);
+    ctx.restore();
+  }
+
+  function drawParticles(dt) {
+    ctx.save();
+    for (const part of particles) {
+      part.life -= dt;
+      if (part.life <= 0) continue;
+      part.x += part.vx * dt;
+      part.y += part.vy * dt;
+      part.vy += 180 * dt;
+      ctx.globalAlpha = clamp(part.life / part.maxLife, 0, 1) * 0.9;
+      ctx.fillStyle = part.color;
+      ctx.fillRect(part.x, part.y, part.size, part.size);
+    }
+    ctx.restore();
+    particles = particles.filter(p => p.life > 0);
+  }
+
+  function drawGridOverlay() {
+    ctx.save();
+    ctx.globalAlpha = 0.06;
+    ctx.strokeStyle = "white";
+    for (let x = 0; x <= W; x += 64) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 64) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  function render(dt) {
+    ctx.clearRect(0, 0, W, H);
+    drawStars(dt);
+    drawGridOverlay();
+    drawGround();
+    drawSpaceship();
+    drawEnemies(now());
+    drawBullets();
+    drawEnemyShots();
+    drawParticles(0); // already advanced; just render on top
+  }
+
+  // Collision helpers
+  function pointInRect(px, py, rx, ry, rw, rh) {
+    return px >= rx && px <= (rx + rw) && py >= ry && py <= (ry + rh);
+  }
+
+  // Main tick
+  function tick(dt) {
+    // Movement input
+    const left = keys.has("ArrowLeft") || keys.has("KeyA");
+    const right = keys.has("ArrowRight") || keys.has("KeyD");
+    if (left) player.x -= player.speed * dt;
+    if (right) player.x += player.speed * dt;
+    player.x = clamp(player.x, 36, W - 36);
+
+    if (keys.has("Space")) { keys.delete("Space"); shoot(); }
+
+    // Dynamic spawning
+    const t = now();
+    if (waveState.spawning) {
+      if (waveState.spawned < waveState.toSpawn && (t - waveState.lastSpawnAt) >= waveState.spawnEveryMs) {
+        waveState.lastSpawnAt = t;
+        // spawn 1-2 at a time on higher waves
+        const burst = (wave >= 5 && Math.random() < 0.35) ? 2 : 1;
+        for (let i = 0; i < burst && waveState.spawned < waveState.toSpawn; i++) spawnEnemy();
+      }
+      if (waveState.spawned >= waveState.toSpawn) {
+        waveState.spawning = false;
+        waveState.finishedAt = t;
+      }
+    }
+
+    // Enemies: approach (dynamic entry) then drift
+    let lowestY = -Infinity;
+    let aliveCount = 0;
+
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      aliveCount += 1;
+
+      // entry phase: slide in from side and descend to targetY
+      if (!e.settled) {
+        // move toward laneX in x and toward targetY in y
+        const dx = e.laneX - e.x;
+        e.x += clamp(dx * 3.2 * dt, -Math.abs(e.vx)*dt, Math.abs(e.vx)*dt);
+
+        const dy = e.targetY - e.y;
+        e.y += clamp(dy * 2.2 * dt, -220*dt, 220*dt);
+
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+          e.settled = true;
+          // snap close
+          e.x = e.laneX;
+          e.y = e.targetY;
+          // set initial drift dir
+          e.dir = Math.random() < 0.5 ? -1 : 1;
+        }
+      } else {
+        // drift with edge bounce + occasional downward "pressure" (more in later waves)
+        const sway = e.swayAmp ? Math.sin(t * 0.001 * (e.swayFreq || 1) + e.laneX * 0.01) : 0;
+        const speed = e.baseSpeed * (1 + 0.04 * (wave - 1));
+        e.x += e.dir * speed * dt + sway * dt * 25;
+
+        if (e.x < 40) { e.x = 40; e.dir = 1; e.y += (wave >= 3 ? 8 : 5); }
+        if (e.x > W - 40) { e.x = W - 40; e.dir = -1; e.y += (wave >= 3 ? 8 : 5); }
+
+        // Swifts "jink" downward occasionally (evasive motion)
+        if (e.type === "SWIFT" && Math.random() < 0.010 * wave) e.y += 6;
+      }
+
+      lowestY = Math.max(lowestY, e.y);
+    }
+
+    // Enemy shooting (per-enemy cadence, different types)
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      // Keep shooting only after they settle a bit (prevents immediate spawn-shot)
+      if (!e.settled) continue;
+
+      if (t - e.lastShotAt >= e.fireEveryMs) {
+        e.lastShotAt = t;
+
+        // Swift sometimes shoots bursts (small chance)
+        if (e.type === "SWIFT" && Math.random() < 0.18) {
+          enemyShootFrom(e);
+          // second shot slightly delayed via "virtual" timestamp
+          e.lastShotAt = t - (e.fireEveryMs * 0.45);
+        } else {
+          enemyShootFrom(e);
+        }
+      }
+    }
+
+    // Bullets update
+    for (const b of bullets) b.y += b.vy * dt;
+    bullets = bullets.filter(b => b.y > -60);
+
+    // Enemy shots update
+    for (const s of enemyShots) {
+      s.y += s.vy * dt;
+      s.x += (s.vx || 0) * dt;
+    }
+    enemyShots = enemyShots.filter(s => s.y < H + 60);
+
+    // Bullet vs enemy collisions
+    for (const b of bullets) {
+      for (const e of enemies) {
+        if (!e.alive) continue;
+
+        // approximate hitbox around emoji
+        const hit = pointInRect(b.x, b.y, e.x - 16, e.y + 2, 32, 32);
+        if (hit) {
+          b.y = -9999;
+          e.hp -= 1;
+          explode(e.x, e.y + 16);
+
+          if (e.hp <= 0) {
+            e.alive = false;
+            score += e.scoreValue;
+          } else {
+            score += 3;
+          }
+        }
+      }
+    }
+    bullets = bullets.filter(b => b.y > -2000);
+
+    // Enemy shot vs player collision
+    if (t >= player.invulnUntil) {
+      for (const s of enemyShots) {
+        const hit = pointInRect(s.x, s.y, player.x - 18, player.y - 20, 36, 38);
+        if (hit) {
+          s.y = H + 9999;
+          loseLife();
+          break;
+        }
+      }
+      enemyShots = enemyShots.filter(s => s.y < H + 2000);
+    }
+
+    // Lose condition: enemies reach ground line
+    if (aliveCount > 0 && (lowestY + 36 >= groundY)) {
+      endGame("The Penguins Invaded!");
+      return;
+    }
+
+    // Particles advance
+    drawParticles(dt);
+
+    // Wave completion
+    if (waveComplete()) nextWave();
+
+    syncHud(paused ? "Paused" : "Running");
+  }
+
+  // Loop
+  let lastFrameAt = now();
+  function loop() {
+    if (!running || paused || gameOver) return;
+
+    const t = now();
+    let dt = (t - lastFrameAt) / 1000;
+    lastFrameAt = t;
+    dt = clamp(dt, 0, 0.035);
+
+    tick(dt);
+    render(dt);
+
+    requestAnimationFrame(loop);
+  }
+
+  // Start/Restart controls
+  function startGame() {
+    hide(panelStart);
+    hide(panelPause);
+    hide(panelGameOver);
+    running = true;
+    paused = false;
+    gameOver = false;
+    syncHud("Running");
+    lastFrameAt = now();
+    requestAnimationFrame(loop);
+  }
+
+  btnStart.addEventListener("click", () => startGame());
+  btnResume.addEventListener("click", () => { if (paused) togglePause(); });
+  btnRestart1.addEventListener("click", () => { resetGame(); startGame(); });
+  btnRestart2.addEventListener("click", () => { resetGame(); startGame(); });
+
+  // Boot
+  resetGame();
+  show(panelStart);
+})();
+</script>
+</body>
+</html>
