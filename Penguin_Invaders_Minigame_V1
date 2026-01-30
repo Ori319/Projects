@@ -256,6 +256,27 @@
   // Enemies + enemy shots
   let enemies = [];      // dynamic list
   let enemyShots = [];
+  const ENEMY_FIRE_RATE_MULTIPLIER = 1.5;
+
+  // Audio
+  let audioCtx = null;
+  let audioEnabled = false;
+  const soundCooldowns = {
+    playerShot: 0,
+    enemyShot: 0,
+    hit: 0,
+    explode: 0,
+    lifeLost: 0,
+    gameOver: 0
+  };
+  const soundCooldownMs = {
+    playerShot: 40,
+    enemyShot: 140,
+    hit: 80,
+    explode: 140,
+    lifeLost: 200,
+    gameOver: 400
+  };
 
   // Dynamic wave/spawn controller
   let waveState = {
@@ -271,11 +292,89 @@
   // Enemy type definitions
   // Each enemy has: type, x, y, vx, targetY, hp, fireEveryMs, nextShotAt, emoji, size, swayAmp, swayFreq, fishSpeed
   const ENEMY_TYPES = {
-    GRUNT:  { key:"GRUNT",  emoji:"🐧", baseHp:1, baseSpeed: 28, fireEveryMs: 1100, swayAmp: 0,  swayFreq: 0,    fishSpeed: 260, score: 10 },
-    TANK:   { key:"TANK",   emoji:"🧊", baseHp:3, baseSpeed: 18, fireEveryMs: 1500, swayAmp: 2,  swayFreq: 0.8,  fishSpeed: 240, score: 18 },
-    SWIFT:  { key:"SWIFT",  emoji:"🪶", baseHp:1, baseSpeed: 45, fireEveryMs: 1350, swayAmp: 14, swayFreq: 1.6,  fishSpeed: 270, score: 14 },
-    SNIPER: { key:"SNIPER", emoji:"🎯", baseHp:2, baseSpeed: 22, fireEveryMs: 900,  swayAmp: 6,  swayFreq: 1.15, fishSpeed: 360, score: 20 }
+    GRUNT:  { key:"GRUNT",  emoji:"🐧", baseHp:1, baseSpeed: 28, fireEveryMs: 1400, swayAmp: 0,  swayFreq: 0,    fishSpeed: 260, score: 10 },
+    TANK:   { key:"TANK",   emoji:"🧊", baseHp:3, baseSpeed: 18, fireEveryMs: 1900, swayAmp: 2,  swayFreq: 0.8,  fishSpeed: 240, score: 18 },
+    SWIFT:  { key:"SWIFT",  emoji:"🪶", baseHp:1, baseSpeed: 45, fireEveryMs: 1750, swayAmp: 14, swayFreq: 1.6,  fishSpeed: 270, score: 14 },
+    SNIPER: { key:"SNIPER", emoji:"🎯", baseHp:2, baseSpeed: 22, fireEveryMs: 1350, swayAmp: 6,  swayFreq: 1.15, fishSpeed: 360, score: 20 }
   };
+
+  function ensureAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+    audioEnabled = true;
+  }
+
+  function playSound(name) {
+    if (!audioEnabled || !audioCtx) return;
+    const t = now();
+    if (t - soundCooldowns[name] < soundCooldownMs[name]) return;
+    soundCooldowns[name] = t;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const nowTime = audioCtx.currentTime;
+
+    let freq = 440;
+    let duration = 0.08;
+    let type = "sine";
+    let peak = 0.08;
+
+    switch (name) {
+      case "playerShot":
+        freq = 880;
+        duration = 0.06;
+        type = "square";
+        peak = 0.07;
+        break;
+      case "enemyShot":
+        freq = 520;
+        duration = 0.07;
+        type = "triangle";
+        peak = 0.05;
+        break;
+      case "hit":
+        freq = 220;
+        duration = 0.09;
+        type = "sawtooth";
+        peak = 0.06;
+        break;
+      case "explode":
+        freq = 140;
+        duration = 0.16;
+        type = "sawtooth";
+        peak = 0.1;
+        break;
+      case "lifeLost":
+        freq = 180;
+        duration = 0.2;
+        type = "triangle";
+        peak = 0.1;
+        break;
+      case "gameOver":
+        freq = 120;
+        duration = 0.35;
+        type = "sine";
+        peak = 0.12;
+        break;
+      default:
+        break;
+    }
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, nowTime);
+    gain.gain.setValueAtTime(0.0001, nowTime);
+    gain.gain.exponentialRampToValueAtTime(peak, nowTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, nowTime + duration);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(nowTime);
+    osc.stop(nowTime + duration + 0.02);
+  }
 
   function pickTypeForWave(w) {
     // Increasing variety with wave number
@@ -396,7 +495,7 @@
       baseSpeed: type.baseSpeed + (wave - 1) * 2.2,
       // Behavior
       hp,
-      fireEveryMs: clamp(type.fireEveryMs - (wave - 1) * 25, 320, type.fireEveryMs),
+      fireEveryMs: clamp(type.fireEveryMs * ENEMY_FIRE_RATE_MULTIPLIER - (wave - 1) * 18, 550, type.fireEveryMs * ENEMY_FIRE_RATE_MULTIPLIER),
       nextShotAt: now() + rand(350, 700), // stagger with slight randomness
       swayAmp: type.swayAmp,
       swayFreq: type.swayFreq,
@@ -427,6 +526,7 @@
     const t = now();
     if (t - player.lastShotAt < player.cooldownMs) return;
     player.lastShotAt = t;
+    playSound("playerShot");
 
     // Add a tiny power bump every 4th wave: double shot
     const multi = (wave % 4 === 0);
@@ -468,6 +568,7 @@
         pushShot({ x: e.x, y: shotY, vy: e.fishSpeed, vx: baseVx, emoji: "🐟" });
       }
     }
+    playSound("enemyShot");
   }
 
   // Effects
@@ -492,6 +593,7 @@
     lives -= 1;
     player.invulnUntil = now() + 1400;
     explode(player.x, player.y);
+    playSound("lifeLost");
 
     if (lives <= 0) {
       endGame("Game Over");
@@ -504,6 +606,7 @@
     running = false;
     paused = false;
     gameOver = true;
+    playSound("gameOver");
 
     elOverTitle.textContent = title;
     elFinalScore.textContent = String(score);
@@ -520,6 +623,7 @@
       show(panelPause);
       syncHud("Paused");
     } else {
+      ensureAudio();
       hide(panelPause);
       syncHud("Running");
       lastFrameAt = now();
@@ -550,15 +654,17 @@
     ctx.restore();
   }
 
-  function drawSpaceship() {
-    const blink = (now() < player.invulnUntil) ? (Math.floor(now() / 80) % 2 === 0) : true;
+  function drawSpaceship(t) {
+    const blink = (t < player.invulnUntil) ? (Math.floor(t / 80) % 2 === 0) : true;
     if (!blink) return;
 
     ctx.save();
-    ctx.translate(player.x, player.y);
+    const bob = Math.sin(t * 0.005) * 3;
+    ctx.translate(player.x, player.y + bob);
 
     // Thruster glow
-    ctx.globalAlpha = 0.35;
+    const thrusterPulse = 0.2 + (Math.sin(t * 0.012) + 1) * 0.1;
+    ctx.globalAlpha = 0.35 + thrusterPulse;
     ctx.beginPath();
     ctx.ellipse(0, 18, 14, 10, 0, 0, Math.PI * 2);
     ctx.fillStyle = "#7bdcff";
@@ -615,25 +721,33 @@
     for (const e of enemies) {
       if (!e.alive) continue;
 
+      const bob = Math.sin(t * 0.004 + e.laneX * 0.03) * 2.5;
+      const tilt = Math.sin(t * 0.003 + e.targetY * 0.05) * 0.05;
+
+      ctx.save();
+      ctx.translate(e.x, e.y + bob);
+      ctx.rotate(tilt);
+
       // soft shadow
       ctx.globalAlpha = 0.18;
       ctx.beginPath();
-      ctx.ellipse(e.x, e.y + 34, 16, 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 34, 16, 6, 0, 0, Math.PI * 2);
       ctx.fillStyle = "black";
       ctx.fill();
 
       // body (emoji)
       ctx.globalAlpha = 1;
       ctx.font = "30px serif";
-      ctx.fillText(e.emoji, e.x, e.y + 18);
+      ctx.fillText(e.emoji, 0, 18);
 
       // HP pips for multi-HP
       if (e.hp > 1) {
         ctx.font = "12px system-ui";
         ctx.fillStyle = "rgba(255,255,255,0.9)";
         const pips = Math.min(e.hp, 5);
-        ctx.fillText("❤".repeat(pips), e.x, e.y - 2);
+        ctx.fillText("❤".repeat(pips), 0, -2);
       }
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -689,7 +803,7 @@
     drawStars(dt);
     drawGridOverlay();
     drawGround();
-    drawSpaceship();
+    drawSpaceship(now());
     drawEnemies(now());
     drawBullets();
     drawEnemyShots();
@@ -814,8 +928,10 @@
           if (e.hp <= 0) {
             e.alive = false;
             score += e.scoreValue;
+            playSound("explode");
           } else {
             score += 3;
+            playSound("hit");
           }
         }
       }
@@ -874,6 +990,7 @@
     running = true;
     paused = false;
     gameOver = false;
+    ensureAudio();
     syncHud("Running");
     lastFrameAt = now();
     requestAnimationFrame(loop);
@@ -883,6 +1000,7 @@
   btnResume.addEventListener("click", () => { if (paused) togglePause(); });
   btnRestart1.addEventListener("click", () => { resetGame(); startGame(); });
   btnRestart2.addEventListener("click", () => { resetGame(); startGame(); });
+  document.addEventListener("keydown", () => ensureAudio(), { once: true });
 
   // Boot
   resetGame();
