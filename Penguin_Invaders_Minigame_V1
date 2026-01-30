@@ -414,6 +414,7 @@
     particles = [];
 
     player.x = W * 0.5;
+    player.y = groundY;
     player.lastShotAt = -Infinity;
     player.invulnUntil = 0;
 
@@ -654,15 +655,17 @@
     ctx.restore();
   }
 
-  function drawSpaceship() {
-    const blink = (now() < player.invulnUntil) ? (Math.floor(now() / 80) % 2 === 0) : true;
+  function drawSpaceship(t) {
+    const blink = (t < player.invulnUntil) ? (Math.floor(t / 80) % 2 === 0) : true;
     if (!blink) return;
 
     ctx.save();
-    ctx.translate(player.x, player.y);
+    const bob = Math.sin(t * 0.005) * 3;
+    ctx.translate(player.x, player.y + bob);
 
     // Thruster glow
-    ctx.globalAlpha = 0.35;
+    const thrusterPulse = 0.2 + (Math.sin(t * 0.012) + 1) * 0.1;
+    ctx.globalAlpha = 0.35 + thrusterPulse;
     ctx.beginPath();
     ctx.ellipse(0, 18, 14, 10, 0, 0, Math.PI * 2);
     ctx.fillStyle = "#7bdcff";
@@ -719,25 +722,33 @@
     for (const e of enemies) {
       if (!e.alive) continue;
 
+      const bob = Math.sin(t * 0.004 + e.laneX * 0.03) * 2.5;
+      const tilt = Math.sin(t * 0.003 + e.targetY * 0.05) * 0.05;
+
+      ctx.save();
+      ctx.translate(e.x, e.y + bob);
+      ctx.rotate(tilt);
+
       // soft shadow
       ctx.globalAlpha = 0.18;
       ctx.beginPath();
-      ctx.ellipse(e.x, e.y + 34, 16, 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 34, 16, 6, 0, 0, Math.PI * 2);
       ctx.fillStyle = "black";
       ctx.fill();
 
       // body (emoji)
       ctx.globalAlpha = 1;
       ctx.font = "30px serif";
-      ctx.fillText(e.emoji, e.x, e.y + 18);
+      ctx.fillText(e.emoji, 0, 18);
 
       // HP pips for multi-HP
       if (e.hp > 1) {
         ctx.font = "12px system-ui";
         ctx.fillStyle = "rgba(255,255,255,0.9)";
         const pips = Math.min(e.hp, 5);
-        ctx.fillText("❤".repeat(pips), e.x, e.y - 2);
+        ctx.fillText("❤".repeat(pips), 0, -2);
       }
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -793,7 +804,7 @@
     drawStars(dt);
     drawGridOverlay();
     drawGround();
-    drawSpaceship();
+    drawSpaceship(now());
     drawEnemies(now());
     drawBullets();
     drawEnemyShots();
@@ -805,14 +816,23 @@
     return px >= rx && px <= (rx + rw) && py >= ry && py <= (ry + rh);
   }
 
+  function rectsIntersect(ax, ay, aw, ah, bx, by, bw, bh) {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
   // Main tick
   function tick(dt) {
     // Movement input
     const left = keys.has("ArrowLeft") || keys.has("KeyA");
     const right = keys.has("ArrowRight") || keys.has("KeyD");
+    const up = keys.has("ArrowUp") || keys.has("KeyW");
+    const down = keys.has("ArrowDown") || keys.has("KeyS");
     if (left) player.x -= player.speed * dt;
     if (right) player.x += player.speed * dt;
+    if (up) player.y -= player.speed * dt;
+    if (down) player.y += player.speed * dt;
     player.x = clamp(player.x, 36, W - 36);
+    player.y = clamp(player.y, 70, groundY);
 
     if (keys.has("Space")) { keys.delete("Space"); shoot(); }
 
@@ -927,6 +947,27 @@
       }
     }
     bullets = bullets.filter(b => b.y > -2000);
+
+    // Enemy collision vs player
+    if (t >= player.invulnUntil) {
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const hit = rectsIntersect(
+          player.x - 18,
+          player.y - 20,
+          36,
+          38,
+          e.x - 16,
+          e.y + 2,
+          32,
+          32
+        );
+        if (hit) {
+          loseLife();
+          break;
+        }
+      }
+    }
 
     // Enemy shot vs player collision
     if (t >= player.invulnUntil) {
