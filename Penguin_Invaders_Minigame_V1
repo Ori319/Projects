@@ -414,6 +414,7 @@
     particles = [];
 
     player.x = W * 0.5;
+    player.y = groundY;
     player.lastShotAt = -Infinity;
     player.invulnUntil = 0;
 
@@ -815,14 +816,23 @@
     return px >= rx && px <= (rx + rw) && py >= ry && py <= (ry + rh);
   }
 
+  function rectsIntersect(ax, ay, aw, ah, bx, by, bw, bh) {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
   // Main tick
   function tick(dt) {
     // Movement input
     const left = keys.has("ArrowLeft") || keys.has("KeyA");
     const right = keys.has("ArrowRight") || keys.has("KeyD");
+    const up = keys.has("ArrowUp") || keys.has("KeyW");
+    const down = keys.has("ArrowDown") || keys.has("KeyS");
     if (left) player.x -= player.speed * dt;
     if (right) player.x += player.speed * dt;
+    if (up) player.y -= player.speed * dt;
+    if (down) player.y += player.speed * dt;
     player.x = clamp(player.x, 36, W - 36);
+    player.y = clamp(player.y, 70, groundY);
 
     if (keys.has("Space")) { keys.delete("Space"); shoot(); }
 
@@ -937,6 +947,27 @@
       }
     }
     bullets = bullets.filter(b => b.y > -2000);
+
+    // Enemy collision vs player
+    if (t >= player.invulnUntil) {
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const hit = rectsIntersect(
+          player.x - 18,
+          player.y - 20,
+          36,
+          38,
+          e.x - 16,
+          e.y + 2,
+          32,
+          32
+        );
+        if (hit) {
+          loseLife();
+          break;
+        }
+      }
+    }
 
     // Enemy shot vs player collision
     if (t >= player.invulnUntil) {
