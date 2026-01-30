@@ -102,7 +102,7 @@
     </div>
 
     <div class="overlay">
-      <canvas id="game" width="820" height="720" aria-label="Penguin Invaders game"></canvas>
+      <canvas id="game" width="820" height="900" aria-label="Penguin Invaders game"></canvas>
 
       <div class="panel" id="panelStart">
         <div class="card">
@@ -114,17 +114,17 @@
             Pause: <span class="kbd">P</span>
           </p>
           <div class="legend" id="legend">
-            <div>🐧 <b>Grunt</b>: basic, moderate fire rate</div>
-            <div>🧊 <b>Tank</b>: more HP, slower</div>
-            <div>🪶 <b>Swift</b>: faster, evasive sway, lower HP</div>
-            <div>🎯 <b>Sniper</b>: slower but shoots faster fish</div>
+            <div>🐧 <b>Grunt</b>: single fish shots</div>
+            <div>🧊 <b>Tank</b>: slow, wide ice spread</div>
+            <div>🪶 <b>Swift</b>: quick feather bursts</div>
+            <div>🎯 <b>Sniper</b>: fast, accurate dart</div>
           </div>
           <div class="row">
             <button id="btnStart">Start Game</button>
             <button id="btnHow" class="secondary">Toggle Tips</button>
           </div>
           <p class="small" id="tips">
-            Tips: swifts are harder to track; tanks take multiple hits; snipers’ fish are faster—move early.
+            Tips: swifts burst quickly; tanks take multiple hits; snipers fire fast darts—move early.
           </p>
         </div>
       </div>
@@ -326,7 +326,7 @@
       toSpawn,
       spawnEveryMs: clamp(240 - (w - 1) * 12, 90, 240),
       lastSpawnAt: 0,
-      entryY: clamp(80 + Math.floor(w * 2), 80, 120),
+      entryY: clamp(70 + Math.floor(w * 1.5), 70, 110),
       finishedAt: 0
     };
 
@@ -342,7 +342,7 @@
     const spawnX = fromLeft ? -40 : W + 40;
     const laneX = rand(60, W - 60);
     const y0 = rand(-70, -10);
-    const targetY = waveState.entryY + rand(0, 180) + (waveState.spawned % 6) * 8;
+    const targetY = waveState.entryY + rand(0, 150) + (waveState.spawned % 6) * 8;
 
     // Horizontal velocity: move toward laneX while descending
     const approachSpeed = 120 + wave * 8;
@@ -408,17 +408,36 @@
   }
 
   function enemyShootFrom(e) {
-    // Some types shoot more accurately/faster
-    // Aim: drift toward player's x a bit (sniper aims better)
-    const aimStrength = (e.type === "SNIPER") ? 0.35 : (e.type === "SWIFT" ? 0.18 : 0.22);
-    const vx = (player.x - e.x) * aimStrength; // px/sec sideways
-    enemyShots.push({
-      x: e.x,
-      y: e.y + 22,
-      vy: e.fishSpeed,
-      vx: clamp(vx, -140, 140),
-      emoji: "🐟"
-    });
+    const aimStrength = (e.type === "SNIPER") ? 0.45 : (e.type === "SWIFT" ? 0.2 : 0.22);
+    const baseVx = (player.x - e.x) * aimStrength; // px/sec sideways
+    const shotY = e.y + 22;
+
+    const pushShot = ({ x, y, vy, vx, emoji }) => {
+      enemyShots.push({ x, y, vy, vx: clamp(vx, -180, 180), emoji });
+    };
+
+    switch (e.type) {
+      case "TANK": {
+        const slowVy = e.fishSpeed * 0.75;
+        pushShot({ x: e.x - 10, y: shotY, vy: slowVy, vx: baseVx - 70, emoji: "🧊" });
+        pushShot({ x: e.x + 10, y: shotY, vy: slowVy, vx: baseVx + 70, emoji: "🧊" });
+        break;
+      }
+      case "SWIFT": {
+        const fastVy = e.fishSpeed * 1.05;
+        pushShot({ x: e.x, y: shotY, vy: fastVy, vx: baseVx, emoji: "🪶" });
+        pushShot({ x: e.x - 8, y: shotY, vy: fastVy, vx: baseVx - 45, emoji: "🪶" });
+        break;
+      }
+      case "SNIPER": {
+        const fastVy = e.fishSpeed * 1.2;
+        pushShot({ x: e.x, y: shotY, vy: fastVy, vx: baseVx, emoji: "🎯" });
+        break;
+      }
+      default: {
+        pushShot({ x: e.x, y: shotY, vy: e.fishSpeed, vx: baseVx, emoji: "🐟" });
+      }
+    }
   }
 
   // Effects
