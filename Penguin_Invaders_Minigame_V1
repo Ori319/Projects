@@ -24,6 +24,25 @@
     font-size: 14px;
     opacity: 0.95;
     flex-wrap: wrap;
+    align-items: center;
+  }
+  .health {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .healthbar {
+    position: relative;
+    width: 110px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    overflow: hidden;
+  }
+  .healthbar span {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, #66f08b, #33c96e);
   }
   canvas {
     width: 100%;
@@ -96,13 +115,17 @@
     <div class="hud" id="hud">
       <div><strong>Score:</strong> <span id="score">0</span></div>
       <div><strong>Lives:</strong> <span id="lives">3</span></div>
+      <div class="health">
+        <strong>Health:</strong> <span id="healthText">3/3</span>
+        <div class="healthbar" aria-hidden="true"><span id="healthFill"></span></div>
+      </div>
       <div><strong>Wave:</strong> <span id="wave">1</span></div>
       <div><strong>Status:</strong> <span id="status">Ready</span></div>
       <div><strong>Enemies:</strong> <span id="enemies">0</span></div>
     </div>
 
     <div class="overlay">
-      <canvas id="game" width="820" height="720" aria-label="Penguin Invaders game"></canvas>
+      <canvas id="game" width="820" height="900" aria-label="Penguin Invaders game"></canvas>
 
       <div class="panel" id="panelStart">
         <div class="card">
@@ -114,17 +137,17 @@
             Pause: <span class="kbd">P</span>
           </p>
           <div class="legend" id="legend">
-            <div>🐧 <b>Grunt</b>: basic, moderate fire rate</div>
-            <div>🧊 <b>Tank</b>: more HP, slower</div>
-            <div>🪶 <b>Swift</b>: faster, evasive sway, lower HP</div>
-            <div>🎯 <b>Sniper</b>: slower but shoots faster fish</div>
+            <div>🐧 <b>Grunt</b>: single fish shots</div>
+            <div>🧊 <b>Tank</b>: slow, wide ice spread</div>
+            <div>🪶 <b>Swift</b>: quick feather bursts</div>
+            <div>🎯 <b>Sniper</b>: fast, accurate dart</div>
           </div>
           <div class="row">
             <button id="btnStart">Start Game</button>
             <button id="btnHow" class="secondary">Toggle Tips</button>
           </div>
           <p class="small" id="tips">
-            Tips: swifts are harder to track; tanks take multiple hits; snipers’ fish are faster—move early.
+            Tips: swifts burst quickly; tanks take multiple hits; snipers fire fast darts—move early.
           </p>
         </div>
       </div>
@@ -211,7 +234,8 @@
   let gameOver = false;
 
   let score = 0;
-  let lives = 3;
+  const maxLives = 3;
+  let lives = maxLives;
   let wave = 1;
 
   // Visuals
@@ -245,7 +269,7 @@
   };
 
   // Enemy type definitions
-  // Each enemy has: type, x, y, vx, targetY, hp, fireEveryMs, lastShotAt, emoji, size, swayAmp, swayFreq, fishSpeed
+  // Each enemy has: type, x, y, vx, targetY, hp, fireEveryMs, nextShotAt, emoji, size, swayAmp, swayFreq, fishSpeed
   const ENEMY_TYPES = {
     GRUNT:  { key:"GRUNT",  emoji:"🐧", baseHp:1, baseSpeed: 28, fireEveryMs: 1100, swayAmp: 0,  swayFreq: 0,    fishSpeed: 260, score: 10 },
     TANK:   { key:"TANK",   emoji:"🧊", baseHp:3, baseSpeed: 18, fireEveryMs: 1500, swayAmp: 2,  swayFreq: 0.8,  fishSpeed: 240, score: 18 },
@@ -282,7 +306,7 @@
     gameOver = false;
 
     score = 0;
-    lives = 3;
+    lives = maxLives;
     wave = 1;
 
     bullets = [];
@@ -303,6 +327,12 @@
   function syncHud(statusText) {
     elScore.textContent = String(score);
     elLives.textContent = String(lives);
+    const healthText = document.getElementById("healthText");
+    const healthFill = document.getElementById("healthFill");
+    if (healthText && healthFill) {
+      healthText.textContent = `${lives}/${maxLives}`;
+      healthFill.style.width = `${clamp((lives / maxLives) * 100, 0, 100)}%`;
+    }
     elWave.textContent = String(wave);
     elStatus.textContent = statusText;
     elEnemies.textContent = String(enemies.filter(e => e.alive).length + (waveState.spawning ? (waveState.toSpawn - waveState.spawned) : 0));
@@ -326,7 +356,7 @@
       toSpawn,
       spawnEveryMs: clamp(240 - (w - 1) * 12, 90, 240),
       lastSpawnAt: 0,
-      entryY: clamp(80 + Math.floor(w * 2), 80, 120),
+      entryY: clamp(70 + Math.floor(w * 1.5), 70, 110),
       finishedAt: 0
     };
 
@@ -342,7 +372,7 @@
     const spawnX = fromLeft ? -40 : W + 40;
     const laneX = rand(60, W - 60);
     const y0 = rand(-70, -10);
-    const targetY = waveState.entryY + rand(0, 180) + (waveState.spawned % 6) * 8;
+    const targetY = waveState.entryY + rand(0, 150) + (waveState.spawned % 6) * 8;
 
     // Horizontal velocity: move toward laneX while descending
     const approachSpeed = 120 + wave * 8;
@@ -367,7 +397,7 @@
       // Behavior
       hp,
       fireEveryMs: clamp(type.fireEveryMs - (wave - 1) * 25, 320, type.fireEveryMs),
-      lastShotAt: now() + rand(-400, 200), // stagger
+      nextShotAt: now() + rand(350, 700), // stagger with slight randomness
       swayAmp: type.swayAmp,
       swayFreq: type.swayFreq,
       fishSpeed: type.fishSpeed + (wave - 1) * 6,
@@ -408,17 +438,36 @@
   }
 
   function enemyShootFrom(e) {
-    // Some types shoot more accurately/faster
-    // Aim: drift toward player's x a bit (sniper aims better)
-    const aimStrength = (e.type === "SNIPER") ? 0.35 : (e.type === "SWIFT" ? 0.18 : 0.22);
-    const vx = (player.x - e.x) * aimStrength; // px/sec sideways
-    enemyShots.push({
-      x: e.x,
-      y: e.y + 22,
-      vy: e.fishSpeed,
-      vx: clamp(vx, -140, 140),
-      emoji: "🐟"
-    });
+    const aimStrength = (e.type === "SNIPER") ? 0.45 : (e.type === "SWIFT" ? 0.2 : 0.22);
+    const baseVx = (player.x - e.x) * aimStrength; // px/sec sideways
+    const shotY = e.y + 22;
+
+    const pushShot = ({ x, y, vy, vx, emoji }) => {
+      enemyShots.push({ x, y, vy, vx: clamp(vx, -180, 180), emoji });
+    };
+
+    switch (e.type) {
+      case "TANK": {
+        const slowVy = e.fishSpeed * 0.75;
+        pushShot({ x: e.x - 10, y: shotY, vy: slowVy, vx: baseVx - 70, emoji: "🧊" });
+        pushShot({ x: e.x + 10, y: shotY, vy: slowVy, vx: baseVx + 70, emoji: "🧊" });
+        break;
+      }
+      case "SWIFT": {
+        const fastVy = e.fishSpeed * 1.05;
+        pushShot({ x: e.x, y: shotY, vy: fastVy, vx: baseVx, emoji: "🪶" });
+        pushShot({ x: e.x - 8, y: shotY, vy: fastVy, vx: baseVx - 45, emoji: "🪶" });
+        break;
+      }
+      case "SNIPER": {
+        const fastVy = e.fishSpeed * 1.2;
+        pushShot({ x: e.x, y: shotY, vy: fastVy, vx: baseVx, emoji: "🎯" });
+        break;
+      }
+      default: {
+        pushShot({ x: e.x, y: shotY, vy: e.fishSpeed, vx: baseVx, emoji: "🐟" });
+      }
+    }
   }
 
   // Effects
@@ -725,17 +774,17 @@
       // Keep shooting only after they settle a bit (prevents immediate spawn-shot)
       if (!e.settled) continue;
 
-      if (t - e.lastShotAt >= e.fireEveryMs) {
-        e.lastShotAt = t;
+      if (t >= e.nextShotAt) {
+        const jitter = rand(-120, 160);
 
         // Swift sometimes shoots bursts (small chance)
         if (e.type === "SWIFT" && Math.random() < 0.18) {
           enemyShootFrom(e);
-          // second shot slightly delayed via "virtual" timestamp
-          e.lastShotAt = t - (e.fireEveryMs * 0.45);
+          enemyShootFrom(e);
         } else {
           enemyShootFrom(e);
         }
+        e.nextShotAt = t + e.fireEveryMs + jitter;
       }
     }
 
