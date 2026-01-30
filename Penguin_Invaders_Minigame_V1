@@ -24,6 +24,40 @@
     font-size: 14px;
     opacity: 0.95;
     flex-wrap: wrap;
+    align-items: center;
+  }
+  .health {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .healthbar {
+    position: relative;
+    width: 110px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    overflow: hidden;
+  }
+  .healthbar span {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, #66f08b, #33c96e);
+  }
+  .sound-toggle {
+    appearance: none;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.08);
+    color: #eaf6ff;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .sound-toggle.on {
+    background: rgba(104, 240, 138, 0.2);
+    border-color: rgba(104, 240, 138, 0.55);
   }
   canvas {
     width: 100%;
@@ -96,13 +130,18 @@
     <div class="hud" id="hud">
       <div><strong>Score:</strong> <span id="score">0</span></div>
       <div><strong>Lives:</strong> <span id="lives">3</span></div>
+      <div class="health">
+        <strong>Health:</strong> <span id="healthText">3/3</span>
+        <div class="healthbar" aria-hidden="true"><span id="healthFill"></span></div>
+      </div>
+      <button class="sound-toggle" id="btnSound" type="button">Sound: Off</button>
       <div><strong>Wave:</strong> <span id="wave">1</span></div>
       <div><strong>Status:</strong> <span id="status">Ready</span></div>
       <div><strong>Enemies:</strong> <span id="enemies">0</span></div>
     </div>
 
     <div class="overlay">
-      <canvas id="game" width="820" height="720" aria-label="Penguin Invaders game"></canvas>
+      <canvas id="game" width="820" height="900" aria-label="Penguin Invaders game"></canvas>
 
       <div class="panel" id="panelStart">
         <div class="card">
@@ -111,20 +150,21 @@
           <p>
             Move: <span class="kbd">←</span>/<span class="kbd">→</span> or <span class="kbd">A</span>/<span class="kbd">D</span> •
             Shoot: <span class="kbd">Space</span> •
-            Pause: <span class="kbd">P</span>
+            Pause: <span class="kbd">P</span> •
+            Sound: <span class="kbd">M</span>
           </p>
           <div class="legend" id="legend">
-            <div>🐧 <b>Grunt</b>: basic, moderate fire rate</div>
-            <div>🧊 <b>Tank</b>: more HP, slower</div>
-            <div>🪶 <b>Swift</b>: faster, evasive sway, lower HP</div>
-            <div>🎯 <b>Sniper</b>: slower but shoots faster fish</div>
+            <div>🐧 <b>Grunt</b>: single fish shots</div>
+            <div>🧊 <b>Tank</b>: slow, wide ice spread</div>
+            <div>🪶 <b>Swift</b>: quick feather bursts</div>
+            <div>🎯 <b>Sniper</b>: fast, accurate dart</div>
           </div>
           <div class="row">
             <button id="btnStart">Start Game</button>
             <button id="btnHow" class="secondary">Toggle Tips</button>
           </div>
           <p class="small" id="tips">
-            Tips: swifts are harder to track; tanks take multiple hits; snipers’ fish are faster—move early.
+            Tips: swifts burst quickly; tanks take multiple hits; snipers fire fast darts—move early.
           </p>
         </div>
       </div>
@@ -175,6 +215,7 @@
   const btnRestart1 = document.getElementById("btnRestart1");
   const btnRestart2 = document.getElementById("btnRestart2");
   const btnHow = document.getElementById("btnHow");
+  const btnSound = document.getElementById("btnSound");
   const tips = document.getElementById("tips");
   btnHow.addEventListener("click", () => tips.classList.toggle("hidden"));
 
@@ -188,6 +229,10 @@
     if (["ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
     keys.add(e.code);
     if (e.code === "KeyP") togglePause();
+    if (e.code === "KeyM") {
+      setSoundState(!audioEnabled);
+      ensureAudio();
+    }
   }, { passive: false });
   window.addEventListener("keyup", (e) => keys.delete(e.code));
 
@@ -195,6 +240,47 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const now = () => performance.now();
   const rand = (a,b) => a + Math.random()*(b-a);
+
+  // Audio
+  let audioEnabled = false;
+  let audioCtx;
+  let masterGain;
+
+  const setSoundState = (enabled) => {
+    audioEnabled = enabled;
+    if (btnSound) {
+      btnSound.textContent = `Sound: ${enabled ? "On" : "Off"}`;
+      btnSound.classList.toggle("on", enabled);
+    }
+  };
+
+  const ensureAudio = () => {
+    if (!audioEnabled) return false;
+    if (!audioCtx) {
+      const AudioCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtor) return false;
+      audioCtx = new AudioCtor();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.08;
+      masterGain.connect(audioCtx.destination);
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return true;
+  };
+
+  const playTone = (frequency, duration, type, gainValue) => {
+    if (!ensureAudio()) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = frequency;
+    gain.gain.value = gainValue;
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  };
 
   // World
   const W = canvas.width;
@@ -211,7 +297,8 @@
   let gameOver = false;
 
   let score = 0;
-  let lives = 3;
+  const maxLives = 3;
+  let lives = maxLives;
   let wave = 1;
 
   // Visuals
@@ -245,7 +332,7 @@
   };
 
   // Enemy type definitions
-  // Each enemy has: type, x, y, vx, targetY, hp, fireEveryMs, lastShotAt, emoji, size, swayAmp, swayFreq, fishSpeed
+  // Each enemy has: type, x, y, vx, targetY, hp, fireEveryMs, nextShotAt, emoji, size, swayAmp, swayFreq, fishSpeed
   const ENEMY_TYPES = {
     GRUNT:  { key:"GRUNT",  emoji:"🐧", baseHp:1, baseSpeed: 28, fireEveryMs: 1100, swayAmp: 0,  swayFreq: 0,    fishSpeed: 260, score: 10 },
     TANK:   { key:"TANK",   emoji:"🧊", baseHp:3, baseSpeed: 18, fireEveryMs: 1500, swayAmp: 2,  swayFreq: 0.8,  fishSpeed: 240, score: 18 },
@@ -282,7 +369,7 @@
     gameOver = false;
 
     score = 0;
-    lives = 3;
+    lives = maxLives;
     wave = 1;
 
     bullets = [];
@@ -303,6 +390,12 @@
   function syncHud(statusText) {
     elScore.textContent = String(score);
     elLives.textContent = String(lives);
+    const healthText = document.getElementById("healthText");
+    const healthFill = document.getElementById("healthFill");
+    if (healthText && healthFill) {
+      healthText.textContent = `${lives}/${maxLives}`;
+      healthFill.style.width = `${clamp((lives / maxLives) * 100, 0, 100)}%`;
+    }
     elWave.textContent = String(wave);
     elStatus.textContent = statusText;
     elEnemies.textContent = String(enemies.filter(e => e.alive).length + (waveState.spawning ? (waveState.toSpawn - waveState.spawned) : 0));
@@ -326,7 +419,7 @@
       toSpawn,
       spawnEveryMs: clamp(240 - (w - 1) * 12, 90, 240),
       lastSpawnAt: 0,
-      entryY: clamp(80 + Math.floor(w * 2), 80, 120),
+      entryY: clamp(70 + Math.floor(w * 1.5), 70, 110),
       finishedAt: 0
     };
 
@@ -342,7 +435,7 @@
     const spawnX = fromLeft ? -40 : W + 40;
     const laneX = rand(60, W - 60);
     const y0 = rand(-70, -10);
-    const targetY = waveState.entryY + rand(0, 180) + (waveState.spawned % 6) * 8;
+    const targetY = waveState.entryY + rand(0, 150) + (waveState.spawned % 6) * 8;
 
     // Horizontal velocity: move toward laneX while descending
     const approachSpeed = 120 + wave * 8;
@@ -366,8 +459,8 @@
       baseSpeed: type.baseSpeed + (wave - 1) * 2.2,
       // Behavior
       hp,
-      fireEveryMs: clamp(type.fireEveryMs - (wave - 1) * 25, 320, type.fireEveryMs),
-      lastShotAt: now() + rand(-400, 200), // stagger
+      fireEveryMs: clamp(type.fireEveryMs + 650 - (wave - 1) * 12, 720, type.fireEveryMs + 650),
+      nextShotAt: now() + rand(900, 1400), // stagger with randomness
       swayAmp: type.swayAmp,
       swayFreq: type.swayFreq,
       fishSpeed: type.fishSpeed + (wave - 1) * 6,
@@ -397,6 +490,7 @@
     const t = now();
     if (t - player.lastShotAt < player.cooldownMs) return;
     player.lastShotAt = t;
+    playTone(560, 0.09, "square", 0.22);
 
     // Add a tiny power bump every 4th wave: double shot
     const multi = (wave % 4 === 0);
@@ -408,22 +502,46 @@
   }
 
   function enemyShootFrom(e) {
-    // Some types shoot more accurately/faster
-    // Aim: drift toward player's x a bit (sniper aims better)
-    const aimStrength = (e.type === "SNIPER") ? 0.35 : (e.type === "SWIFT" ? 0.18 : 0.22);
-    const vx = (player.x - e.x) * aimStrength; // px/sec sideways
-    enemyShots.push({
-      x: e.x,
-      y: e.y + 22,
-      vy: e.fishSpeed,
-      vx: clamp(vx, -140, 140),
-      emoji: "🐟"
-    });
+    const aimStrength = (e.type === "SNIPER") ? 0.45 : (e.type === "SWIFT" ? 0.2 : 0.22);
+    const baseVx = (player.x - e.x) * aimStrength; // px/sec sideways
+    const shotY = e.y + 22;
+
+    const pushShot = ({ x, y, vy, vx, emoji }) => {
+      enemyShots.push({ x, y, vy, vx: clamp(vx, -180, 180), emoji });
+    };
+
+    switch (e.type) {
+      case "TANK": {
+        const slowVy = e.fishSpeed * 0.75;
+        playTone(180, 0.12, "triangle", 0.16);
+        pushShot({ x: e.x - 10, y: shotY, vy: slowVy, vx: baseVx - 70, emoji: "🧊" });
+        pushShot({ x: e.x + 10, y: shotY, vy: slowVy, vx: baseVx + 70, emoji: "🧊" });
+        break;
+      }
+      case "SWIFT": {
+        const fastVy = e.fishSpeed * 1.05;
+        playTone(320, 0.08, "sawtooth", 0.14);
+        pushShot({ x: e.x, y: shotY, vy: fastVy, vx: baseVx, emoji: "🪶" });
+        pushShot({ x: e.x - 8, y: shotY, vy: fastVy, vx: baseVx - 45, emoji: "🪶" });
+        break;
+      }
+      case "SNIPER": {
+        const fastVy = e.fishSpeed * 1.2;
+        playTone(420, 0.06, "square", 0.12);
+        pushShot({ x: e.x, y: shotY, vy: fastVy, vx: baseVx, emoji: "🎯" });
+        break;
+      }
+      default: {
+        playTone(240, 0.08, "triangle", 0.12);
+        pushShot({ x: e.x, y: shotY, vy: e.fishSpeed, vx: baseVx, emoji: "🐟" });
+      }
+    }
   }
 
   // Effects
   function explode(x, y) {
     const colors = ["#ffffff", "#7bdcff", "#ff6b6b", "#ffd86b"];
+    playTone(120, 0.2, "sawtooth", 0.18);
     for (let i = 0; i < 26; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 90 + Math.random() * 240;
@@ -443,6 +561,7 @@
     lives -= 1;
     player.invulnUntil = now() + 1400;
     explode(player.x, player.y);
+    playTone(90, 0.22, "square", 0.2);
 
     if (lives <= 0) {
       endGame("Game Over");
@@ -462,6 +581,7 @@
 
     show(panelGameOver);
     syncHud("Game Over");
+    playTone(140, 0.35, "sine", 0.2);
   }
 
   function togglePause() {
@@ -725,17 +845,17 @@
       // Keep shooting only after they settle a bit (prevents immediate spawn-shot)
       if (!e.settled) continue;
 
-      if (t - e.lastShotAt >= e.fireEveryMs) {
-        e.lastShotAt = t;
+      if (t >= e.nextShotAt) {
+        const jitter = rand(180, 360);
 
         // Swift sometimes shoots bursts (small chance)
-        if (e.type === "SWIFT" && Math.random() < 0.18) {
+        if (e.type === "SWIFT" && Math.random() < 0.1) {
           enemyShootFrom(e);
-          // second shot slightly delayed via "virtual" timestamp
-          e.lastShotAt = t - (e.fireEveryMs * 0.45);
+          enemyShootFrom(e);
         } else {
           enemyShootFrom(e);
         }
+        e.nextShotAt = t + e.fireEveryMs + jitter;
       }
     }
 
@@ -830,12 +950,20 @@
     requestAnimationFrame(loop);
   }
 
-  btnStart.addEventListener("click", () => startGame());
-  btnResume.addEventListener("click", () => { if (paused) togglePause(); });
-  btnRestart1.addEventListener("click", () => { resetGame(); startGame(); });
-  btnRestart2.addEventListener("click", () => { resetGame(); startGame(); });
+  btnStart.addEventListener("click", () => { ensureAudio(); startGame(); });
+  btnResume.addEventListener("click", () => { ensureAudio(); if (paused) togglePause(); });
+  btnRestart1.addEventListener("click", () => { ensureAudio(); resetGame(); startGame(); });
+  btnRestart2.addEventListener("click", () => { ensureAudio(); resetGame(); startGame(); });
+
+  if (btnSound) {
+    btnSound.addEventListener("click", () => {
+      setSoundState(!audioEnabled);
+      ensureAudio();
+    });
+  }
 
   // Boot
+  setSoundState(false);
   resetGame();
   show(panelStart);
 })();
